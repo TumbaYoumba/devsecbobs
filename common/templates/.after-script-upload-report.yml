@@ -1,0 +1,58 @@
+.upload-report:
+  after_script:
+    - |
+      set -x
+      echo "Uploading report with /.after-script-template-upload-report.yml"
+      ls -la
+      
+      CI_REPOSITORY_URL_SSH=$(echo "$CI_REPOSITORY_URL" | sed -E 's|https://[^/]+@|git@|' | sed -E 's|/|:|' | sed 's|https://||')
+      export $(xargs < variables.env)
+
+      readlink -f $REPORT_FILE_NAME > report.list
+      if [ -d "many_reports/" ]; then
+        # we have to rewrite the file
+        ls -d $PWD/*/* | grep many_reports > report.list
+      fi
+
+      cat report.list | while read REPORT_TO_UPLOAD; do \
+      
+       if [ "$SEC_DEFECT_MANAGEMENT_SYSTEM" == "defectdojo" ]; then
+        echo "uploading $REPORT_TO_UPLOAD to defectdojo"
+        curl -s -D - --insecure -X POST "$SEC_DD_URL/api/v2/import-scan/" \
+          -H "accept: application/json" \
+          -H "Content-Type: multipart/form-data" \
+          -H "Authorization: Token $SEC_DD_KEY"  \
+          -F "file=@$REPORT_TO_UPLOAD" \
+          -F "scan_type=$SCAN_TYPE" \
+          -F "engagement=$DD_ENGAGEMENT_ID" \
+          -F "active=true" \
+          -F "verified=false" \
+          -F "group_by=$DD_GROUP_BY" \
+          -F "close_old_findings=false" \
+          -F "scan_date=$(date +%F)" || true
+      fi
+
+      if [ "$SEC_DEFECT_MANAGEMENT_SYSTEM" == "portal" ]; then
+        echo "uploading $REPORT_TO_UPLOAD to portal"
+        curl -s -D - --insecure -X POST "$SEC_PORTAL_URL/api/v1/scan/import/" \
+          -H "accept: application/json" \
+          -H "Content-Type: multipart/form-data" \
+          -H "Authorization: Token $SEC_PORTAL_KEY"  \
+          -F "file=@$REPORT_TO_UPLOAD" \
+          -F "scanner_name=$SCAN_TYPE" \
+          -F "branch=$SEC_ISSUES_BRANCH" \
+          -F "audit_id=$AUDIT_ID" \
+          -F "repository=$CI_REPOSITORY_URL_SSH" \
+          -F "product_name=$SEC_PORTAL_PRODUCT_NAME" \
+          -F "product_type=$CI_PROJECT_ROOT_NAMESPACE" || true
+      fi
+
+      done
+
+
+  artifacts:
+    name: "$CI_JOB_NAME"
+    paths:
+    - $REPORT_FILE_NAME
+    - many_reports/
+    when: always

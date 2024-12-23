@@ -1,0 +1,72 @@
+variables:
+# COMMON VARS
+
+    # These variables are used to define the version for scanners
+    # "$CI_REGISTRY/$SEC_PATH_TO_IMAGES/trufflehog:$SEC_TRUFFLEHOG_VER"
+
+    SEC_PATH_TO_IMAGES: "whitespots-public/security-images" 
+    SEC_DD_URL: "https://dd-demo.whitespots.io"
+    # SEC_DD_KEY: need to set in CI variables in your project settings
+
+    SEC_PORTAL_URL: "https://portal-demo.whitespots.io"
+    # SEC_PORTAL_KEY: need to set in CI variables in your project settings
+    
+    # Define the target defect management system. Variants: defectdojo, portal
+    # PS. in CI variables in your project settings as well
+    # SEC_DEFECT_MANAGEMENT_SYSTEM: We put defectdojo as a default for now in init.yml (thanks gitlab for not supporting ${VAR:-default} construction)
+    
+    # How to group vulnerabilities in defectdojo
+    DD_GROUP_BY: 'file_path' # Default value. Others: component
+
+# Last updated 20/07/2023. Some versions are from June
+
+# SECRETS
+    SEC_TRUFFLEHOG3_VER: "3.0.7" 
+    SEC_GITLEAKS_VER: "8.18.0" 
+# SAST
+    SEC_BANDIT_VER: "1.7.8"
+    SEC_CODEQL_VER: "2.12.4"
+    SEC_PHPCS_VER: "2.0.1"
+    SEC_GOSEC_VER: "2.20.0" 
+    SEC_RETIREJS_VER: "4.3.1"
+    SEC_ESLINT_VER: "9.5.0" # Bump from "8.42.0"
+    SEC_BRAKEMAN_VER: "6.0.0"
+    SEC_SEMGREP_VER: "1.99.0" 
+    SEC_SPOTBUGS_VER: "5.0.0"
+    SEC_SNYK_VER: "1.1233.0"
+# SONAR
+    SEC_SONARSCANNER_VER: "4.8"
+    SEC_SONARSCANNER_DOTNET_VER: "5.0.4"
+# SAST IAC / Infrascructure configuration scanners
+    SEC_TERRASCAN_VER: "1.18.11"
+    SEC_CHECKOV_VER: "3.2.108"
+    SEC_GIXY_VER: "0.1.20"
+    SEC_HADOLINT_VER: "2.12.0"
+# DEP CHECK
+    SEC_TRIVY_VER: "0.51.4"
+    SEC_GRYPE_VER: "0.62.3"
+    SEC_IMAGE_TO_SCAN: "${CI_REGISTRY_IMAGE}:${CI_COMMIT_REF_NAME}"
+# DAST
+    SEC_ARACHNI_VER: "1.5.1" # you can switch to "1.6.1.3", but it's working only on rootless runners  
+    SEC_ZAP_VER: "2.11.0"
+# MOBILE
+    SEC_MOBSFSCAN_VER: "0.3.6"
+    SEC_CHECKKARLMARX_VER: "1.0.2"
+    SEC_MOBILE_MOBSF_URL: "http://mobsf.demo.whitespots.io"
+    # SEC_MOBILE_MOBSF_TOKEN: 
+# INFRA
+    SEC_SUBFINDER_VER: "2.5.2"
+    SEC_NAABU_VER: "2.1.9"
+    SEC_HTTPX_VER: "1.3.3"
+    SEC_NUCLEI_VER: "2.9.9" # yes, that's not latest, but somehow is able to find more
+    SEC_PROWLER_VER: "3.11.3"
+
+#GITLAB
+    SEC_GITLAB_SEMGREP_VER: "4"
+    SEC_GITLAB_NODEJS_VER: "4"
+    SEC_GITLAB_PHPCS_VER: "4"
+    SEC_GITLAB_GITLEAKS_VER: "5"
+    SEC_GITLAB_GEMNASIUM_VER: "4.9.0"
+    SEC_GITLAB_GEMNASIUM_MAVEN_VER: "4.9.0"
+    SEC_GITLAB_GEMNASIUM_PYTHON_VER: "4"
+    

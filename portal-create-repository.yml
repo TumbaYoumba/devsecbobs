@@ -1,0 +1,47 @@
+stages: 
+  - send-repo-to-portal
+
+.tags:
+  tags:
+    - gitlab-org
+
+send-repo-to-portal:
+  stage: send-repo-to-portal
+  image: registry.gitlab.com/whitespots-public/security-images/toolset:latest
+  script:
+    - |
+      set -e
+      env | grep "REPOSITORY"
+      echo "Sending repo address to security portal"
+      
+      CI_REPOSITORY_URL_SSH=$(echo "$CI_REPOSITORY_URL" | sed -E 's|https://[^/]+@|git@|' | sed -E 's|/|:|' | sed 's|https://||')
+
+      echo "First, we need to search this asset in portal"
+      echo "We need it to safely process the situation, when the repo is already added"
+
+      {
+        ASSET_ID=$(curl --insecure "$SEC_PORTAL_URL/api/v1/product-assets/?asset_type=0&search=$CI_REPOSITORY_URL_SSH" \
+          -H "Authorization: Token $SEC_PORTAL_KEY" | jq '.results[0].id' || true)
+
+        echo "ASSET_ID=$ASSET_ID"
+
+        if [ "$ASSET_ID" != "null" ]; then
+          echo "There's an asset with this name already associated with one product"
+          exit 0
+        fi
+
+        if [ "$ASSET_ID" == "null" ]; then
+          echo "There's no such repo in portal, let's create it"
+          curl --insecure -X POST "$SEC_PORTAL_URL/api/v1/product-assets/" \
+            -H "Content-Type: application/json" \
+            -H "Authorization: Token $SEC_PORTAL_KEY"  \
+            -d '{"value": "'"$CI_REPOSITORY_URL_SSH"'"}'
+        fi
+
+      } || {
+        echo "There was an error, please start digging it"
+      }
+
+      
+  extends: 
+    - .tags

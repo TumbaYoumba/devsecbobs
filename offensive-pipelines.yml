@@ -1,0 +1,46 @@
+stages: 
+  - init                 # * To add engagement ot Deffect Dojo
+  - subdomains-prepare   # * To add infrastructure security scan
+  - subdomains-scan      # * To add infrastructure security scan
+  - cleanup              # * To mark some vulnerabilities as False Positives & patch dependencies (TBD)
+
+
+# All scan stages should wait for defectdojo preparation stage
+.needs_init:
+  needs: 
+    - job: init
+      artifacts: true
+
+# Of course it should have allow_failure by default
+.allow_failure:
+  allow_failure: true
+
+# Runner tags. Dev repositories should have access to them
+.tags:
+  tags:
+    # public runners 
+    #- gitlab-org-docker
+    - gitlab-org
+
+.image:
+  image: $CI_REGISTRY/whitespots-public/security-images/toolset:latest
+include:
+  
+  # Scaner versions + defectdojo url
+  - local: 'common/variables.yml'
+    ref: 'main'
+  
+  # DefectDojo preparation stage
+  - local: 'common/init.yml'
+    ref: 'main'
+
+  # Scan stages
+  - local: 'common/infrastructure.yml'
+    ref: 'main'
+
+  # Upload report stage
+  - local: 'common/templates/.after-script-upload-report.yml'
+    ref: 'main'
+
+
+

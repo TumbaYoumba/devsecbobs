@@ -1,0 +1,114 @@
+.for_cleanup:
+  stage: cleanup
+  rules:
+    - if: '$SEC_CLEANUP_ENABLE == "true"'
+  extends:
+    - .needs_init_and_scanners
+    - .allow_failure
+    - .tags
+
+.needs_init_and_scanners:
+  needs: 
+    - job: scan:trufflehog3
+    - job: scan:gitleaks
+    - job: init
+      artifacts: true
+
+
+auto-falser:
+  image: "$CI_REGISTRY/$SEC_PATH_TO_IMAGES/toolset:latest"
+  script:
+    - python3 /falser/falser.py
+  extends: 
+    - .for_cleanup
+
+
+patch-libraries:pip:
+  variables:
+    DD_ATTACHMENT_FILE_NAME: 'requirements.txt'
+  image: "$CI_REGISTRY/$SEC_PATH_TO_IMAGES/ws-patcher:latest"
+  script:
+    - | 
+      if [ -f $DD_ATTACHMENT_FILE_NAME ]
+      then 
+        python3 -m pip_audit -r requirements.txt --fix || true
+        # For setting dojo variables
+        export $(xargs < variables.env)
+        # To send patched files
+        export DD_ATTACHMENT_FILE_PATH=$(echo $(pwd)/$DD_ATTACHMENT_FILE_NAME)
+        python3 /simplifier/dependency-task-simplifier.py
+      fi
+  extends: 
+    - .for_cleanup
+  artifacts:
+    name: "$CI_JOB_NAME"
+    paths:
+      - requirements.txt
+    when: always
+
+
+patch-libraries:npm:
+  variables:
+    DD_ATTACHMENT_FILE_NAME: 'package.json'
+  image: "$CI_REGISTRY/$SEC_PATH_TO_IMAGES/ws-patcher:latest"
+  script:
+    - | 
+      if [ -f $DD_ATTACHMENT_FILE_NAME ]
+      then 
+       npm install || true
+       npm audit fix --force || true
+       # For setting dojo variables
+       export $(xargs < variables.env)
+       # To send patched files
+       export DD_ATTACHMENT_FILE_PATH=$(echo $(pwd)/$DD_ATTACHMENT_FILE_NAME)
+       python3 /simplifier/dependency-task-simplifier.py
+      fi
+  extends: 
+    - .for_cleanup
+  artifacts:
+    name: "$CI_JOB_NAME"
+    paths:
+      - package.json
+    when: always
+
+
+patch-libraries:go:
+  variables:
+    DD_ATTACHMENT_FILE_NAME: 'go.mod'
+  image: "$CI_REGISTRY/$SEC_PATH_TO_IMAGES/ws-patcher:latest"
+  script:
+    - | 
+      if [ -f $DD_ATTACHMENT_FILE_NAME ]
+      then 
+       go get -u && go mod tidy || true
+       # For setting dojo variables
+       export $(xargs < variables.env)
+       # To send patched files
+       export DD_ATTACHMENT_FILE_PATH=$(echo $(pwd)/$DD_ATTACHMENT_FILE_NAME)
+       python3 /simplifier/dependency-task-simplifier.py
+      fi
+  extends: 
+    - .for_cleanup
+  artifacts:
+    name: "$CI_JOB_NAME"
+    paths:
+      - go.mod
+    when: always
+
+
+patch-libraries:other:
+  variables:
+    ATTACH_FILE: 'False'
+  image: "$CI_REGISTRY/$SEC_PATH_TO_IMAGES/ws-patcher:latest"
+  script:
+    - | 
+      if [ ! -f requirements.txt ] && [ ! -f package.json ] && [ ! -f go.mod ]
+      then 
+       # For setting dojo variables
+       export $(xargs < variables.env)
+       # To send patched files
+       python3 /simplifier/dependency-task-simplifier.py
+      fi
+  extends: 
+    - .for_cleanup
+

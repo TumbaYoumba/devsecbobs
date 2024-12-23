@@ -1,0 +1,68 @@
+stages: 
+  - init                 # * To add engagement ot Deffect Dojo
+  - secrets-scan         # * To add secrets analysis
+  - code-scan            # * To add code analysis and SonarQube steps
+  - image-scan           # * To add dependencies check step
+  - web-dast                 # * To add DAST analyser
+  - api-tests-prepare    # * To add DAST based on QA tests
+  - api-tests-run        # * To add DAST based on QA tests
+  - sec-mobile           # * To add Mobsf security scan
+  - subdomains-prepare   # * To add infrastructure security scan
+  - subdomains-scan      # * To add infrastructure security scan
+  - cleanup              # * To mark some vulnerabilities as False Positives & patch dependencies (TBD)
+
+
+# All scan stages should wait for defectdojo preparation stage
+.needs_init:
+  needs: 
+    - job: init
+      artifacts: true
+
+# Of course it should have allow_failure by default
+.allow_failure:
+  allow_failure: true
+
+# Runner tags. Dev repositories should have access to them
+.tags:
+  tags:
+    # public runners 
+    #- gitlab-org-docker
+    - gitlab-org
+
+.image:
+  image: $CI_REGISTRY/whitespots-public/security-images/toolset:latest
+  
+include:
+  
+  # Scaner versions + defectdojo url
+  - local: 'common/variables.yml'
+    ref: 'main'
+  
+  # DefectDojo preparation stage
+  - local: 'common/init.yml'
+    ref: 'main'
+
+  # Scan stages
+  - local: 'common/secrets-scan.yml'
+    ref: 'main'
+  - local: 'common/code-scan.yml'
+    ref: 'main'
+  - local: 'common/image-scan.yml'
+    ref: 'main'
+  - local: 'common/dast.yml'
+    ref: 'main'
+  - local: 'common/sec-mobile.yml'
+    ref: 'main'
+  - local: 'common/sonarqube.yml'
+    ref: 'main'
+  - local: 'common/infrastructure.yml'
+    ref: 'main'
+  - local: 'common/cleanup.yml'
+    ref: 'main'
+
+  # Upload report stage
+  - local: 'common/templates/.after-script-upload-report.yml'
+    ref: 'main'
+
+
+

@@ -1,0 +1,87 @@
+.mobsf:
+  extends: 
+    - .allow_failure
+    - .tags
+    - .upload-report
+  stage: sec-mobile
+  image: alpine
+  before_script:
+    - apk add busybox-extras
+    - apk add curl git jq  
+  rules:
+    - if: '$SEC_MOBILE_ENABLE == "true"'
+  variables:
+    SCAN_TYPE: 'MobSF Scan'
+    REPORT_FILE_NAME: 'mobsf.json'
+    DD_GROUP_BY: 'file_path'
+    MOBSF_API_KEY: 5d0c570663e9631bca3d4b280817c9410433c03fabcfe62ba818a723eea842ab
+    SEC_MOBSF_URL: http://mobsf:8000
+    # SEC_MOBILE_APK_PATH
+  artifacts:
+    paths:
+    - $REPORT_FILE_NAME
+    when: always
+
+# SURPRISE, you have this stage for deployed version as well
+# 
+# mobsf:deployed:
+#   extends: .mobsf
+#   script:
+#     - | 
+#       set -x
+#       echo "### Uploading file $SEC_MOBILE_APK_PATH to $SEC_MOBILE_MOBSF_URL"
+#       export SEC_MOBSF_HASH=$(curl --insecure -F "file=@$SEC_MOBILE_APK_PATH" $SEC_MOBILE_MOBSF_URL/api/v1/upload -H "Authorization:$SEC_MOBILE_MOBSF_TOKEN" | jq  --raw-output '.hash')
+#       echo "### Start scanning $SEC_MOBILE_APK_PATH with hash $SEC_MOBSF_HASH on $SEC_MOBILE_MOBSF_URL"
+#       curl -v --insecure -X POST --url $SEC_MOBILE_MOBSF_URL/api/v1/scan --data "scan_type=apk&file_name=$(basename $SEC_MOBILE_APK_PATH)&hash=$SEC_MOBSF_HASH" -H "Authorization:$SEC_MOBILE_MOBSF_TOKEN"
+#       sleep 30
+#       curl -v --insecure -X POST --url $SEC_MOBILE_MOBSF_URL/api/v1/report_json --data "hash=$SEC_MOBSF_HASH" -H "Authorization:$SEC_MOBILE_MOBSF_TOKEN" > $REPORT_FILE_NAME 
+#       # jq .manifest_analysis $REPORT_FILE_NAME
+#       # jq .permissions $REPORT_FILE_NAME
+#       echo "### Average CVSS: $(jq .average_cvss $REPORT_FILE_NAME)"
+#       echo "### Security Score: $(jq .security_score $REPORT_FILE_NAME)"
+
+mobsf:services:
+  extends:
+    - .mobsf
+  services:
+    - name: opensecurity/mobile-security-framework-mobsf:v3.3.3
+      alias: mobsf
+    # Write nginx here if your runners are k8s-based
+  script:
+    - export SEC_MOBSF_HASH=$(curl $SEC_MOBSF_URL/api/v1/upload -F 'file=@SEC_MOBILE_APK_PATH'  -H "Authorization:$MOBSF_API_KEY" | jq -r .hash)
+    - curl -X POST --url $SEC_MOBSF_URL/api/v1/scan 
+        --data "scan_type=apk&file_name=$SEC_MOBILE_APK_PATH&hash=$SEC_MOBSF_HASH" 
+        --header "Authorization:$MOBSF_API_KEY"
+    - sleep 5
+    - curl -X POST --url $SEC_MOBSF_URL/api/v1/report_json 
+        --data "hash=$SEC_MOBSF_HASH" 
+        --header "Authorization:$MOBSF_API_KEY" > $REPORT_FILE_NAME
+    - cat $REPORT_FILE_NAME
+
+
+checkkarlmarx:
+  stage: sec-mobile
+  extends: 
+    - .allow_failure
+    - .tags
+    - .upload-report
+  image: "$CI_REGISTRY/$SEC_PATH_TO_IMAGES/checkkarlmarx:$SEC_CHECKKARLMARX_VER"
+  #image: devkekops/ckm_test_ci
+  variables:
+    SCAN_TYPE: 'SARIF'
+    REPORT_FILE_NAME: 'report.sarif'
+    DD_GROUP_BY: 'file_path'
+    SEC_CHECKKARLMARX_DOMAIN: 'mycompany.com'
+    SEC_CHECKKARLMARX_QA_TAGS: 'qa test dev stage'
+    SEC_CHECKKARLMARX_PACKAGES: 'com.mycompany com.example'
+  script:
+    # -q : will filter urls by regex and it will mark them as QA domains 
+    # -d : company domains to filter by regex
+    #- python checkkarlmarx.py . --sarif --stdout -d $SEC_CHECKKARLMARX_DOMAIN -q $SEC_CHECKKARLMARX_QA_TAGS -p $SEC_CHECKKARLMARX_PACKAGES > report.sarif
+    - python /checkkarlmarx-$SEC_CHECKKARLMARX_VER/checkkarlmarx.py . --sarif --stdout > report.sarif || true
+  rules:
+    - if: '$SEC_MOBILE_ENABLE == "true"'
+  artifacts:
+    paths:
+    - $REPORT_FILE_NAME
+    when: always

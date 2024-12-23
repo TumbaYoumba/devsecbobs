@@ -1,0 +1,75 @@
+stages: 
+  # after build stage
+  - security
+
+security:
+  stage: security
+  allow_failure: true
+  trigger:
+    include:
+    # Path to the shared repo
+      - project: 'whitespots-public/pipelines'
+        # a proper branch name
+        ref: 'main'
+        file: 'pipelines.yml'
+  variables:
+
+    # Secrets settings
+    SEC_SECRETS_SCAN_ENABLE: "true"
+
+    # SAST settings
+    SEC_SAST_ENABLE: "true"
+    SEC_DOCKER: "true"
+    SEC_PATH_TO_DOCKERFILE_FOLDER: ""
+    SEC_IAC: "true"
+    SEC_GREP: "true"
+    SEC_SEMGREP_CONFIG: 'p/ci'
+    SEC_SEMGREP_EXCLUDE: '/tests'
+    SEC_PYTHON: "true"
+    SEC_RUBY: "false"
+    SEC_PHP: "false"
+    SEC_PHPCS_STANDARD: '/tmp/vendor/pheromone/phpcs-security-audit/example_base_ruleset.xml'
+    SEC_JS: "true"
+    SEC_JAVA: "true"
+    SEC_ESLINT_CONFIG_PATH: '/eslint/eslintrc-light.js'
+    SEC_GOLANG: "false"
+    SEC_GOSEC_MINIMUM_SEVERITY: 'low'
+    SEC_GOSEC_EXCLUDE: 'G102,G103,G104,G307'
+    
+    # Dependency check settings
+    SEC_IMAGE_SCAN_ENABLE: "true"
+    SEC_IMAGE_TO_SCAN_NAME: ${CI_REGISTRY_IMAGE}
+    SEC_IMAGE_TO_SCAN_TAG: ${CI_COMMIT_REF_NAME}
+    SEC_IMAGE_REGISTRY_URL: ${CI_REGISTRY}
+    SEC_IMAGE_REGISTRY_USER: ${CI_REGISTRY_USER}
+    SEC_IMAGE_REGISTRY_PASS: ${CI_REGISTRY_PASSWORD}
+    SEC_TRIVY_MINIMUM_SEVERITY: 'HIGH,CRITICAL'
+    SEC_CLEANUP_ENABLE: "true" # To auto-collapse all reuirements vulnerabilities to one finding in defectdojo
+
+    # DAST settings
+    SEC_DAST_URL_TO_SCAN: "https://example.com"
+    SEC_ARACHNI_ADDITIONAL_FLAGS: ''
+    # For API tests via OWASP ZAP
+    QA_AUTOTESTS_NAME: "main"
+
+    # Mobile settings
+    SEC_MOBILE_ENABLE: "false"
+    SEC_MOBILE_APK_PATH: "./apk/diva-beta.apk"
+    SEC_MOBILE_SCAN_TYPE: "apk|ios"
+    SEC_CHECKKARLMARX_DOMAIN: 'mycompany.com'
+    SEC_CHECKKARLMARX_QA_TAGS: 'qa test dev stage'
+    SEC_CHECKKARLMARX_PACKAGES: 'com.mycompany com.example'
+
+    # Infrastructure scanners
+    SEC_INFRA_ENABLE: "false"
+    SEC_INFRA_DOMAIN: "exxxxample.com"
+    SEC_NUCLEI_TEMPLATES: '-t exposures -t exposed-panels'
+
+    # SAST (csharp) settings
+    SEC_SONARQUBE_ENABLE: "false"
+    SEC_SONARQUBE_URL: "https://sonarqube-test.whitespots.io"
+    SEC_SONARQUBE_PROJECT_KEY: "test-app"
+    SEC_SONARQUBE_SOURCES: "/usr/src"
+    SEC_SONARQUBE_TOKEN: "token"
+    SEC_SONARQUBE_PATH_TO_SLN: "token" # <- put in CI/CD variables for security reasons
+    

@@ -1,0 +1,427 @@
+# SETTINGS
+
+# For all stages below
+.for_code_scan:
+  stage: code-scan
+  extends:
+    - .upload-report
+    - .needs_init
+    - .allow_failure
+    - .tags
+
+# Only for mobile scanners, that scan code
+.mobile_sast:
+  rules:
+    - if: '$SEC_MOBILE_ENABLE == "true"'
+
+
+# Language rules
+
+.docker_rules:
+  rules:
+    - if: '$SEC_DOCKER == "true"'
+    - exists:
+      - '**/Dockerfile'
+
+.golang_rules:
+  rules:
+    - if: '$SEC_GO == "true"'
+    - exists:
+      - '**/*.go'
+
+.grep_rules:
+  rules:
+    - if: '$SEC_GREP == "true"'
+    - exists:
+      - '**/*.go'
+      - '**/*.php'
+      - '**/*.java'
+      - '**/*.scala'
+      - '**/*.kt'
+      - '**/*.groovy'
+      - '**/*.js'
+      - '**/*.py'
+
+.codeql_py_js_go_rules:
+  rules:
+    - if: '$SEC_GREP == "true"'
+    - if: '$SEC_CODEQL == "true"'
+    - exists:
+      - '**/*.go'
+      - '**/*.js'
+      - '**/*.py'
+      - '**/*.jsx'
+      - '**/*.rb'
+      - '**/*.ts'
+
+.iac_rules:
+  rules:
+    - if: '$SEC_IAC == "true"'
+    - exists:
+      - '**/*.yml'
+      - '**/*.yaml'
+      - '**/*.tf'
+      - '**/*.json'
+      - '**/*.template'
+
+.js_rules:
+  rules:
+    - if: '$SEC_JS == "true"'
+    - exists:
+      - '**/*.js'
+
+.java_rules:
+  rules:
+    - if: '$SEC_JAVA == "true"'
+    - exists:
+      - '**/*.java'
+      - '**/*.scala'
+      - '**/*.kt'
+      - '**/*.groovy'
+
+.python_rules:
+  rules:
+    - if: '$SEC_PYTHON == "true"'
+    - exists:
+      - '**/*.py'
+
+.php_rules:
+  rules:
+    - if: '$SEC_PHP == "true"'
+    - exists:
+      - '**/*.php'
+      - '**/*.pht'
+
+.ruby_rules:
+  rules:
+    - if: '$SEC_RUBY == "true"'
+    - exists:
+      - '**/*.rb'
+# INFRA
+
+scan:hadolint:
+  variables:
+    SCAN_TYPE: 'Hadolint Dockerfile check'
+    REPORT_FILE_NAME: 'hadolint.json'
+    DD_GROUP_BY: 'file_path'
+    SEC_PATH_TO_DOCKERFILE_FOLDER: $SEC_CODE_FOLDER
+  image: "$CI_REGISTRY/$SEC_PATH_TO_IMAGES/hadolint:$SEC_HADOLINT_VER"
+  script:
+    - echo "Scanning code with - $CI_REGISTRY_IMAGE"
+    # Check all Dockerfiles
+    - find . -name "Dockerfile" -type f -exec hadolint --no-fail -f json {} > $REPORT_FILE_NAME \;
+    # prepare the report for DefectDojo (We need to split many reports by comma)
+    - sed -i 's/\[\]//g' $REPORT_FILE_NAME
+    - sed -i ':a;N;$!ba;s/\n//g' $REPORT_FILE_NAME
+    - sed -i 's/}\]\[{/},{/g' $REPORT_FILE_NAME
+    # This is the script for only one Dockerfile (we think it's not required anymore, but maybe it would be interesting for you)
+    # - hadolint -f json ./$SEC_PATH_TO_DOCKERFILE_FOLDER/Dockerfile > $REPORT_FILE_NAME || true
+  extends: 
+    - .for_code_scan
+    - .docker_rules
+
+scan:checkov:
+  variables:
+    SCAN_TYPE: 'Checkov Scan'
+    REPORT_FILE_NAME: 'checkov.json'
+    DD_GROUP_BY: 'file_path'
+  image: "$CI_REGISTRY/$SEC_PATH_TO_IMAGES/checkov:$SEC_CHECKOV_VER"
+  script:
+    - checkov -d ./$SEC_CODE_FOLDER -s -o json > $REPORT_FILE_NAME
+  extends: 
+    - .for_code_scan
+    - .iac_rules
+
+# SAST
+
+sast:py:bandit:
+  variables:
+    SCAN_TYPE: 'Bandit Scan'
+    REPORT_FILE_NAME: 'bandit.json'
+    DD_GROUP_BY: 'file_path'
+  image: "$CI_REGISTRY/$SEC_PATH_TO_IMAGES/bandit:$SEC_BANDIT_VER"
+  script:
+    - echo "Scanning code with - $CI_REGISTRY_IMAGE"
+    - bandit -ll -ii -r ./$SEC_CODE_FOLDER -f json -o $REPORT_FILE_NAME || true
+  extends: 
+    - .for_code_scan
+    - .python_rules
+
+sast:php:phpcs-security-audit:
+  variables:
+    SCAN_TYPE: 'PHP Security Audit v2'
+    REPORT_FILE_NAME: 'phpcs.json'
+    SEC_PHPCS_STANDARD: '/tmp/vendor/pheromone/phpcs-security-audit/example_base_ruleset.xml'
+    DD_GROUP_BY: 'file_path'
+  image: "$CI_REGISTRY/$SEC_PATH_TO_IMAGES/phpcs-security-audit:$SEC_PHPCS_VER"
+  script:
+    - echo "Scanning code with - $CI_REGISTRY_IMAGE"
+    - /tmp/vendor/bin/phpcs --extensions=php,inc,lib,module,info --standard=$SEC_PHPCS_STANDARD  --report=json --report-file=$REPORT_FILE_NAME ./$SEC_CODE_FOLDER || true
+  extends: 
+    - .for_code_scan
+    - .php_rules
+
+sast:go:gosec:
+  variables:
+    SCAN_TYPE: 'Gosec Scanner'
+    REPORT_FILE_NAME: 'gosec.json'
+    DD_GROUP_BY: 'file_path'
+    SEC_GOSEC_MINIMUM_SEVERITY: 'low'
+    SEC_GOSEC_EXCLUDE: 'G102,G103,G104,G307'
+  image: "$CI_REGISTRY/$SEC_PATH_TO_IMAGES/gosec:$SEC_GOSEC_VER"
+  script:
+    - echo "Scanning code with - $CI_REGISTRY_IMAGE"
+    - gosec -fmt json -out $REPORT_FILE_NAME -exclude=$SEC_GOSEC_EXCLUDE -severity=$SEC_GOSEC_MINIMUM_SEVERITY ./$SEC_CODE_FOLDER || true
+    # G102: Bind to all interfaces
+    # G103: Audit the use of unsafe block
+    # G104: Audit errors not checked
+    # G307: Deferring a method which returns an error
+  extends: 
+    - .for_code_scan
+    - .golang_rules
+
+sast:js:retirejs:
+  variables:
+    SCAN_TYPE: 'Retire.js Scan'
+    REPORT_FILE_NAME: 'retirejs.json'
+    DD_GROUP_BY: 'file_path'
+  image: "$CI_REGISTRY/$SEC_PATH_TO_IMAGES/retirejs:$SEC_RETIREJS_VER"
+  script:
+    - echo "Scanning code with - $CI_REGISTRY_IMAGE"
+    # Fix dependencies by using npm install two times. Yes, this is how it works sometimes...
+    # Just uncomment if required
+    # - npm install || true
+    - npm install || true
+    - retire --outputformat json --outputpath $REPORT_FILE_NAME --path ./$SEC_CODE_FOLDER  || true
+  extends: 
+    - .for_code_scan 
+    - .js_rules
+
+sast:js:eslint:
+  variables:
+    SCAN_TYPE: 'ESLint Scan'
+    REPORT_FILE_NAME: 'eslint.json'
+    DD_GROUP_BY: 'file_path'
+    SEC_ESLINT_CONFIG_PATH: '/eslint/eslintrc-light.js'
+  image: "$CI_REGISTRY/$SEC_PATH_TO_IMAGES/eslint:$SEC_ESLINT_VER"
+  script:
+    - echo "Scanning code with - $CI_REGISTRY_IMAGE"
+    - eslint -c $SEC_ESLINT_CONFIG_PATH -o $REPORT_FILE_NAME -f json ./$SEC_CODE_FOLDER || true
+  extends: 
+    - .for_code_scan
+    - .js_rules
+
+sast:ruby:brakeman:
+  variables:
+    SCAN_TYPE: 'Brakeman Scan'
+    REPORT_FILE_NAME: 'brakeman.json'
+    DD_GROUP_BY: 'file_path'
+  image: "$CI_REGISTRY/$SEC_PATH_TO_IMAGES/brakeman:$SEC_BRAKEMAN_VER"
+  script:
+    - echo "Scanning code with - $CI_REGISTRY_IMAGE"
+    - brakeman -o $REPORT_FILE_NAME ./$SEC_CODE_FOLDER || true
+  extends: 
+    - .for_code_scan
+    - .ruby_rules
+
+sast:java:spotbugs:
+  variables:
+    SCAN_TYPE: 'GitLab SAST Report'
+    # This scanner has it's own report creation logic: https://gitlab.com/gitlab-org/security-products/analyzers/common#how-to-use-the-analyzers
+    REPORT_FILE_NAME: 'gl-sast-report.json' 
+    #CI_PROJECT_DIR: $SEC_CODE_FOLDER # FOR non-gitlab scm
+    SECURE_LOG_LEVEL: "debug"
+  image: "$CI_REGISTRY/$SEC_PATH_TO_IMAGES/spotbugs:$SEC_SPOTBUGS_VER"
+  script:
+    - echo "Scanning code with - $CI_REGISTRY_IMAGE"
+    - /analyzer run || true
+  extends: 
+    - .for_code_scan 
+    - .java_rules
+
+
+# Other languages/technologies
+
+# Codeql supports many languages. Some of them must specify the --command flag value to build your sources 
+# Be aware, that it requirems at least 1gb ram on runners
+sast:py-js-go:codeql:
+  variables:
+    SCAN_TYPE: 'SARIF'
+    REPORT_FILE_NAME: 'codeql.json'
+  image: "$CI_REGISTRY/$SEC_PATH_TO_IMAGES/codeql:$SEC_CODEQL_VER"
+  script:
+    - echo "Scanning code with - $CI_REGISTRY_IMAGE"
+    - echo "CI_PROJECT_REPOSITORY_LANGUAGES=$CI_PROJECT_REPOSITORY_LANGUAGES"
+    - mkdir codeql-db
+    - mkdir many_reports
+      # codeql database create codeql-db --command="ls" --db-cluster --language=python,go,javascript --no-run-unnecessary-builds
+    - |
+      if [[ $CI_PROJECT_REPOSITORY_LANGUAGES == *"python"* ]]; then
+        codeql database create codeql-db --db-cluster --language=python --no-run-unnecessary-builds || true
+        codeql database analyze codeql-db/python /opt/codeql-repo/python/ql/src/codeql-suites/python-security-extended.qls --verbose --format=sarif-latest --output=many_reports/python-$REPORT_FILE_NAME || true
+      fi
+    - |
+      if [[ $CI_PROJECT_REPOSITORY_LANGUAGES == *"javascript"* ]]; then
+        codeql database create codeql-db --db-cluster --language=javascript --no-run-unnecessary-builds || true
+        codeql database analyze codeql-db/javascript /opt/codeql-repo/javascript/ql/src/codeql-suites/javascript-security-extended.qls --verbose --format=sarif-latest --output=many_reports/js-$REPORT_FILE_NAME || true 
+      fi
+    - |
+      if [[ $CI_PROJECT_REPOSITORY_LANGUAGES == *"go"* ]]; then
+        codeql database create codeql-db --db-cluster --language=go --no-run-unnecessary-builds || true
+        codeql database analyze codeql-db/go /opt/codeql-repo/go/ql/src/codeql-suites/go-security-extended.qls --verbose --format=sarif-latest --output=many_reports/go-$REPORT_FILE_NAME || true 
+      fi
+    
+    - echo "for using custom rules, please save them to /opt/codeql/codeql-suites/python-my.qls"
+    - echo "use this instruction https://docs.github.com/en/code-security/codeql-cli/using-the-codeql-cli/testing-custom-queries"
+  extends:
+    - .for_code_scan
+    - .codeql_py_js_go_rules
+  artifacts:
+    paths:
+      - many_reports/
+    expire_in: 1 week
+
+sast:grep:semgrep:
+  variables:
+    SCAN_TYPE: 'Semgrep JSON Report'
+    REPORT_FILE_NAME: 'semgrep.json'
+    DD_GROUP_BY: 'file_path'
+    SEC_SEMGREP_CONFIG: 'p/ci'
+    SEC_SEMGREP_EXCLUDE: '/tests'
+  image: "$CI_REGISTRY/$SEC_PATH_TO_IMAGES/semgrep:$SEC_SEMGREP_VER"
+  script:
+    - echo "Scanning code with - $CI_REGISTRY_IMAGE"
+    - semgrep --config $SEC_SEMGREP_CONFIG --exclude=$SEC_SEMGREP_EXCLUDE --json ./$SEC_CODE_FOLDER > $REPORT_FILE_NAME || true
+  extends: 
+    - .for_code_scan 
+    - .grep_rules
+
+sast:grep:terrascan:
+  variables:
+    SCAN_TYPE: 'Terrascan Scan'
+    REPORT_FILE_NAME: 'terrascan.json'
+  image: "$CI_REGISTRY/$SEC_PATH_TO_IMAGES/terrascan:$SEC_TERRASCAN_VER"
+  script:
+    - echo "Scanning code with - $CI_REGISTRY_IMAGE"
+    # first, it should be updated
+    - terrascan init 
+    - terrascan scan ./$SEC_CODE_FOLDER -o json > $REPORT_FILE_NAME || true
+  extends: 
+    - .for_code_scan 
+    - .iac_rules
+
+# Mobile SAST
+
+sast:mobile:mobsfscan:
+  variables:
+    SCAN_TYPE: 'Mobsfscan Scan'
+    REPORT_FILE_NAME: 'mobsfscan.json'
+    DD_GROUP_BY: 'file_path'
+  image: "$CI_REGISTRY/$SEC_PATH_TO_IMAGES/mobsfscan:$SEC_MOBSFSCAN_VER"
+  script:
+    - echo "Scanning code with - $CI_REGISTRY_IMAGE"
+    - mobsfscan ./$SEC_CODE_FOLDER --json > $REPORT_FILE_NAME || true
+  extends: 
+    - .mobile_sast
+    - .for_code_scan
+
+
+# Code dependencies
+
+dep-scan:trivy:
+  variables:
+    SCAN_TYPE: 'Trivy Scan'
+    REPORT_FILE_NAME: 'trivy-code.json'
+    DD_GROUP_BY: 'component_name'
+    IMAGE_TO_SCAN: "$CI_REGISTRY/$CI_PROJECT_PATH:$CI_COMMIT_REF_NAME"
+    SEC_TRIVY_MINIMUM_SEVERITY: 'HIGH,CRITICAL'
+  image: "$CI_REGISTRY/$SEC_PATH_TO_IMAGES/trivy:$SEC_TRIVY_VER"
+  script:
+    - echo "Scanning code with - $CI_REGISTRY_IMAGE"
+    - trivy fs --output $REPORT_FILE_NAME --security-checks vuln --format json --severity $SEC_TRIVY_MINIMUM_SEVERITY ./$SEC_CODE_FOLDER || true
+  extends: 
+    - .for_code_scan
+  artifacts:
+    paths:
+      - $REPORT_FILE_NAME
+    expire_in: 1 week
+
+# Snyk scan
+
+snyk-scan:go:
+  variables:
+    SCAN_TYPE: 'Snyk Scan'
+    REPORT_FILE_NAME: 'snyk-go.json'
+  image: "$CI_REGISTRY/$SEC_PATH_TO_IMAGES/snyk-go:$SEC_SNYK_VER"
+  script:
+    - go build -o binary
+    - snyk auth $SNYK_TOKEN
+    - snyk monitor --remote-repo-url=$CI_PROJECT_NAME --org=$SNYK_ORG_ID
+    - snyk test --json > $REPORT_FILE_NAME 
+    - ls -la
+  extends:
+    - .for_code_scan
+    - .golang_rules
+  artifacts:
+    paths:
+      - $REPORT_FILE_NAME
+    expire_in: 1 week
+
+snyk-scan:python:
+  variables:
+    SCAN_TYPE: 'Snyk Scan'
+    REPORT_FILE_NAME: 'snyk-python.json'
+    PIP_CACHE_DIR: "$CI_PROJECT_DIR/.cache/pip"
+  image: "$CI_REGISTRY/$SEC_PATH_TO_IMAGES/snyk-python:$SEC_SNYK_VER"
+  before_script:
+    - python -V 
+    - pip install --upgrade pip
+    - pip install virtualenv
+    - python3 -m venv .venv
+    - . .venv/bin/activate 
+    - REQ_PATH=$(find . -name "requirements.txt")
+    - pip install -r $REQ_PATH
+  script:
+    - TARGET_PATH="${REQ_PATH%/*}"
+    - cd $TARGET_PATH
+    - snyk auth $SNYK_TOKEN
+    - snyk test --json > $REPORT_FILE_NAME
+  extends:
+    - .for_code_scan
+    - .python_rules
+  artifacts:
+    paths:
+      - $REPORT_FILE_NAME
+    expire_in: 1 week
+
+snyk-scan:iac:
+  variables:
+    SCAN_TYPE: 'Snyk Scan'
+    REPORT_FILE_NAME: 'snyk-iac.json'
+  image: "$CI_REGISTRY/$SEC_PATH_TO_IMAGES/snyk-node:$SEC_SNYK_VER"
+  script:
+    - snyk auth $SNYK_TOKEN
+    - snyk iac test --report --remote-repo-url=$CI_PROJECT_NAME --json > $REPORT_FILE_NAME
+  extends:
+    - .for_code_scan
+    - .iac_rules
+
+snyk-scan:nodejs:
+  variables:
+    SCAN_TYPE: 'Snyk Scan'
+    REPORT_FILE_NAME: 'snyk-nodejs.json'
+  image: "$CI_REGISTRY/$SEC_PATH_TO_IMAGES/snyk-node:$SEC_SNYK_VER"
+  script:
+    - snyk auth $SNYK_TOKEN
+    - snyk monitor --remote-repo-url=$CI_PROJECT_NAME --org=$SNYK_ORG_ID
+    - snyk test --json > $REPORT_FILE_NAME
+    - ls -la
+  extends:
+    - .for_code_scan
+    - .js_rules
+  artifacts:
+    paths:
+      - $REPORT_FILE_NAME
+    expire_in: 1 week
+
+

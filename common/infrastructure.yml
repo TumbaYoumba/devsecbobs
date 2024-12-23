@@ -1,0 +1,86 @@
+.for_infra_scan:
+  rules:
+    - if: '$SEC_INFRA_ENABLE == "true"'
+  extends:
+    - .needs_init
+    - .allow_failure
+    - .tags
+
+
+subdomains-search:
+  stage: subdomains-prepare
+  extends: 
+    - .for_infra_scan
+  image: "$CI_REGISTRY/$SEC_PATH_TO_IMAGES/subfinder:$SEC_SUBFINDER_VER"
+  variables:
+    SEC_INFRA_DOMAIN: example.com
+  script:
+    - subfinder -d $SEC_INFRA_DOMAIN -active -o subdomains.txt
+    # For cases if no subdomains were found we need to place at least defined domain to list
+    - echo $SEC_INFRA_DOMAIN >> subdomains.txt
+    - cat subdomains.txt | sort -u > domains.txt
+    - sed 's/^/http\:\/\//' domains.txt > urls.txt
+    - ls
+  artifacts:
+    paths:
+    - urls.txt
+    - domains.txt
+    when: always
+
+
+port-scan:
+  stage: subdomains-prepare
+  extends: 
+    - .for_infra_scan
+  image: 
+    name: "$CI_REGISTRY/$SEC_PATH_TO_IMAGES/naabu:$SEC_NAABU_VER"
+    entrypoint: [""]
+  needs:
+    - job: subdomains-search
+      artifacts: true
+  script:
+    - naabu -top-ports=1000 -c 50 -list domains.txt -scan-all-ips -stats -rate 1000 -o port_scan.txt
+  artifacts:
+    paths:
+    - port_scan.txt
+
+
+sort-web-only:
+  stage: subdomains-prepare
+  extends: 
+    - .for_infra_scan
+  image: 
+    name: "$CI_REGISTRY/$SEC_PATH_TO_IMAGES/httpx:$SEC_HTTPX_VER"
+    entrypoint: [""]
+  needs:
+    - job: port-scan
+      artifacts: true
+  script:
+    - httpx -list port_scan.txt -o urls.txt
+  artifacts:
+    paths:
+    - urls.txt
+
+
+subdomains-scan:
+  stage: subdomains-scan
+  extends: 
+    - .upload-report
+    - .for_infra_scan
+  image: "$CI_REGISTRY/$SEC_PATH_TO_IMAGES/nuclei:$SEC_NUCLEI_VER"
+  variables:
+    SCAN_TYPE: 'SARIF'
+    REPORT_FILE_NAME: 'report-nuclei.json'
+    DD_GROUP_BY: 'component_name'
+    SEC_NUCLEI_TEMPLATES: '-t cnvd,cves,takeovers,vulnerabilities,default-logins,fuzzing,iot,misconfiguration,exposures,exposed-panels'
+  script:
+    - nuclei -l urls.txt $SEC_NUCLEI_TEMPLATES -je $REPORT_FILE_NAME -eid ssl,robots-txt-endpoint,options-method,xss-deprecated-header,http-missing-security-headers,HTTP-TRACE,jupyter-notebook,robots-txt,wp-license-file,old-copyright,azure-domain-tenant,apple-app-site-association,ds-store-file,CVE-2020-9490,google-floc-disabled,addeventlistener-detect,email-extractor,web-config,request-based-interaction,request-based-interaction:dns,cors-misconfig
+  needs: 
+    - job: init
+      artifacts: true
+    - job: sort-web-only
+      artifacts: true
+  artifacts:
+    paths:
+    - $REPORT_FILE_NAME
+    when: always

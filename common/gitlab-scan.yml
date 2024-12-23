@@ -1,0 +1,162 @@
+init:
+  stage: init
+  extends:
+    - .tags
+  image: "$CI_REGISTRY/$SEC_PATH_TO_IMAGES/toolset:latest"
+  script:
+    - |
+      set -xe
+      env | grep "SEC_"
+
+      if [ "$SEC_ISSUES_BRANCH" == "" ]; then
+        export SEC_ISSUES_BRANCH="$CI_COMMIT_BRANCH"
+      fi
+
+      if [ "$SEC_DEFECT_MANAGEMENT_SYSTEM" == "" ]; then
+        export SEC_DEFECT_MANAGEMENT_SYSTEM="portal"
+      fi
+
+      echo "SEC_ISSUES_BRANCH=$SEC_ISSUES_BRANCH" >> variables.env
+      echo "SEC_DEFECT_MANAGEMENT_SYSTEM=$SEC_DEFECT_MANAGEMENT_SYSTEM" >> variables.env
+  artifacts:
+    name: "$CI_JOB_NAME"
+    paths:
+      - variables.env
+      - ./
+    when: always
+
+.for_gitlab_scan:
+  stage: gitlab-scan
+  script: 
+    - /analyzer run
+  extends: 
+    - .upload-report
+    - .tags
+    - .needs_init
+
+.grep_rules:
+  rules:
+    - exists:
+      - '**/*.py'
+      - '**/*.js'
+      - '**/*.jsx'
+      - '**/*.ts'
+      - '**/*.tsx'
+      - '**/*.c'
+      - '**/*.go'
+      - '**/*.java'
+      - '**/*.cs'
+      - '**/*.html'
+      - '**/*.scala'
+      - '**/*.sc'
+
+.dependency_rules:
+  rules:
+    - exists:
+      - '**/Gemfile.lock'
+      - '**/composer.lock'
+      - '**/gems.locked'
+      - '**/go.sum'
+      - '**/npm-shrinkwrap.json'
+      - '**/package-lock.json'
+      - '**/yarn.lock'
+      - '**/pnpm-lock.yaml'
+      - '**/packages.lock.json'
+      - '**/conan.lock'
+
+.maven_rules:
+  rules:
+    - exists:
+      - '**/build.gradle'
+      - '**/build.gradle.kts'
+      - '**/build.sbt'
+      - '**/pom.xml'
+
+.python_rules:
+  rules:
+    - exists:
+      - '**/requirements.txt'
+      - '**/requirements.pip'
+      - '**/Pipfile'
+      - '**/Pipfile.lock'
+      - '**/requires.txt'
+      - '**/setup.py'
+      - '**/poetry.lock'
+
+
+dependency-scanning:
+  image: "$CI_REGISTRY/$SEC_PATH_TO_IMAGES/gemnasium-gitlab:$SEC_GITLAB_GEMNASIUM_VER"
+  variables:
+    REPORT_FILE_NAME: 'gl-dependency-scanning-report.json'
+    SCAN_TYPE: 'GitLab Gemnasium'
+    DS_ANALYZER_NAME: "gemnasium"
+    GEMNASIUM_LIBRARY_SCAN_ENABLED: "true"
+    DS_REMEDIATE: "false"
+    DS_MAX_DEPTH: 20
+  extends: 
+    - .for_gitlab_scan
+    - .dependency_rules
+
+maven-dependency-scanning:
+  image: "$CI_REGISTRY/$SEC_PATH_TO_IMAGES/gemnasium-maven-gitlab:$SEC_GITLAB_GEMNASIUM_MAVEN_VER"
+  variables:
+    REPORT_FILE_NAME: 'gl-dependency-scanning-report.json'
+    SCAN_TYPE: 'GitLab Gemnasium'
+    DS_ANALYZER_NAME: "gemnasium-maven"
+    GEMNASIUM_LIBRARY_SCAN_ENABLED: "true"
+  extends: 
+    - .for_gitlab_scan
+    - .maven_rules
+
+python-dependency-scanning:
+  image: "$CI_REGISTRY/$SEC_PATH_TO_IMAGES/gemnasium-python-gitlab:$SEC_GITLAB_GEMNASIUM_PYTHON_VER"
+  variables:
+    REPORT_FILE_NAME: 'gl-dependency-scanning-report.json'
+    SCAN_TYPE: 'GitLab Gemnasium'
+    DS_ANALYZER_NAME: "gemnasium-python"
+    GEMNASIUM_LIBRARY_SCAN_ENABLED: "true"
+  extends: 
+    - .for_gitlab_scan
+    - .python_rules
+
+secret-detection:
+  image: "$CI_REGISTRY/$SEC_PATH_TO_IMAGES/secret-detection-gitlab:$SEC_GITLAB_GITLEAKS_VER"
+  variables:
+    SECRET_DETECTION_HISTORIC_SCAN: 'True'
+    REPORT_FILE_NAME: 'gl-secret-detection-report.json'
+    SCAN_TYPE: 'GitLab Gitleaks'
+    GIT_DEPTH: "50"
+  extends:
+    - .for_gitlab_scan
+
+sast:semgrep-sast:
+  image: "$CI_REGISTRY/$SEC_PATH_TO_IMAGES/semgrep-sast-gitlab:$SEC_GITLAB_SEMGREP_VER"
+  variables:
+    REPORT_FILE_NAME: 'gl-sast-report.json'
+    SCAN_TYPE: 'GitLab Semgrep' 
+    SEARCH_MAX_DEPTH: 20
+  extends: 
+    - .for_gitlab_scan
+    - .grep_rules
+
+sast:nodejs-scan-sast:
+  image: "$CI_REGISTRY/$SEC_PATH_TO_IMAGES/nodejs-sast-gitlab:$SEC_GITLAB_NODEJS_VER"
+  variables:
+    REPORT_FILE_NAME: 'gl-sast-report.json'
+    SCAN_TYPE: 'GitLab Semgrep'
+  rules:
+    - exists:
+        - '**/package.json'
+  extends:
+    - .for_gitlab_scan
+
+sast:phpcs-sast:
+  image: "$CI_REGISTRY/$SEC_PATH_TO_IMAGES/phpcs-sast-gitlab:$SEC_GITLAB_PHPCS_VER"
+  variables:
+    REPORT_FILE_NAME: 'gl-sast-report.json'
+    SCAN_TYPE: 'GitLab Semgrep' 
+  rules:
+    - exists:
+        - '**/*.php'
+  extends:
+    - .for_gitlab_scan

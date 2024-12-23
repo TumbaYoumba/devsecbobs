@@ -1,0 +1,94 @@
+.dast_rules:
+  rules:
+    - if: '$SEC_DAST_ENABLE == "true"'
+
+web-dast:arachni:
+  stage: web-dast
+  variables:
+    SCAN_TYPE: 'Arachni Scan'
+    REPORT_FILE_NAME: 'arachni.json'
+    DD_GROUP_BY: 'component_name'
+    SEC_ARACHNI_ADDITIONAL_FLAGS: ''
+  image: "$CI_REGISTRY/$SEC_PATH_TO_IMAGES/arachni:$SEC_ARACHNI_VER"
+  script:
+    - echo "Scanning service with ${CI_REGISTRY_IMAGE}"
+    - arachni --output-verbose --scope-include-subdomains $SEC_INFRA_DOMAIN $SEC_ARACHNI_ADDITIONAL_FLAGS --report-save-path=arachni.afr
+    # arachni_rpc --dispatcher-url arachni-dispatcher:2222 --scope-include-subdomains --report-save-path=arachni.afr $SEC_INFRA_DOMAIN
+    - arachni_reporter arachni.afr --reporter=json:outfile=$REPORT_FILE_NAME || true
+  extends: 
+    - .allow_failure
+    - .tags
+    - .needs_init
+    - .dast_rules
+    - .upload-report
+    
+
+# All scan stages should wait for zap preparation stage
+.needs_init_and_qa_tests:
+  needs:
+    - job: api-tests-prepare
+      artifacts: true
+
+api-tests-prepare:
+  stage: api-tests-prepare
+  extends:
+    - .allow_failure
+    - .tags
+    - .needs_init
+    - .dast_rules
+  variables:
+    SEC_ZAP_AUTOTESTS_GIT_SSH_HOST: "bitbucket.example.com"
+    SEC_ZAP_AUTOTESTS_GIT_SSH_PORT: "22"
+    SEC_ZAP_AUTOTESTS_GIT_REPO_URL: "ssh://git@bitbucket.example.com/qa/tests-framework.git"
+  image: "$CI_REGISTRY/$SEC_PATH_TO_IMAGES/toolset:latest"
+  script:
+    - |
+        git config --global url."git@$SEC_ZAP_AUTOTESTS_GIT_SSH_HOST:".insteadOf "https://$SEC_ZAP_AUTOTESTS_GIT_SSH_HOST/"
+        # If you are clonning from insecure SCM
+        # git config --global core.sshCommand '-o StrictHostKeyChecking=no'
+
+        mkdir -p ~/.ssh && touch ~/.ssh/known_hosts
+        echo "$SSH_PRIVATE" | tr -d '\r' > ~/.ssh/id_rsa
+        chmod 400 ~/.ssh/id_rsa
+        eval "$(ssh-agent -s)"
+        export SSH_PRIVATE=""
+        ssh-add ~/.ssh/id_rsa
+        echo -e "Host *\n\tPubkeyAcceptedKeyTypes +ssh-rsa \n\n" > ~/.ssh/config
+        ssh-keyscan -p $SEC_ZAP_AUTOTESTS_GIT_SSH_PORT -H $SEC_ZAP_AUTOTESTS_GIT_SSH_HOST >> ~/.ssh/known_hosts
+        
+        git clone $SEC_ZAP_AUTOTESTS_GIT_REPO_URL code # here we should hardcode the qa repo url
+        ls code
+        mv code/* . && rm -rf code
+
+  artifacts:
+    paths:
+      - ./
+
+api-tests-run:
+  stage: api-tests-run
+  extends:
+    - .tags
+    - .needs_init_and_qa_tests
+    - .allow_failure
+    - .dast_rules
+    - .upload-report
+  image: "$CI_REGISTRY/$SEC_PATH_TO_IMAGES/zap:$SEC_ZAP_VER"
+  variables:
+      ZAP_API_KEY: "$ZAP_API_KEY"
+      HOST_PATTERN: "$SEC_INFRA_DOMAIN"
+      SCAN_URL_SCHEME: "http"
+      QA_AUTOTESTS_NAME: "main"
+      QA_AUTOTESTS_PROXY_FOR_DEBUG: "zap 8080"
+      SCAN_TYPE: 'ZAP Scan'
+      REPORT_FILE_NAME: 'zap_report.xml'
+  services:
+    - name: owasp/zap2docker-bare:$SEC_ZAP_VER
+      alias: zap
+      command: ["java", "-Xmx2048m", "-jar", "/zap/zap-$SEC_ZAP_VER.jar", "-daemon", "-host", "0.0.0.0", "-port", "8080", "-config", "api.disablekey=true", "-config", "api.addrs.addr.name=.*", "-config", "api.addrs.addr.regex=true"]
+
+  script:
+    - pip3 install -r requirements.txt
+    # Here you need to describe how to run your QA framework, that was cloned previously
+    # - pytest services/$QA_AUTOTESTS_NAME || true
+    - curl --insecure -x http://zap:8080 -I http://$HOST_PATTERN
+    - python zap_scan.py

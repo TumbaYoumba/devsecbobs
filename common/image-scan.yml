@@ -1,0 +1,55 @@
+.rules_image_scan:
+  rules:
+    - if: '$SEC_IMAGE_SCAN_ENABLE == "true"'
+
+# DEP CHECK
+
+image-scan:trivy:
+  stage: image-scan
+  variables:
+    SCAN_TYPE: 'Trivy Scan'
+    REPORT_FILE_NAME: 'trivy-image.json'
+    DD_GROUP_BY: 'component_name'
+    TRIVY_AUTH_URL: "$SEC_IMAGE_REGISTRY_URL"
+    TRIVY_USERNAME: "$SEC_IMAGE_REGISTRY_USER"
+    TRIVY_PASSWORD: "$SEC_IMAGE_REGISTRY_PASS"
+    SEC_TRIVY_MINIMUM_SEVERITY: 'HIGH,CRITICAL'
+    SEC_IMAGE_TO_SCAN_TAG: "$CI_COMMIT_REF_NAME"
+    SEC_IMAGE_TO_SCAN_NAME: "${CI_REGISTRY_IMAGE}"
+  image: "$CI_REGISTRY/$SEC_PATH_TO_IMAGES/trivy:$SEC_TRIVY_VER"
+  script:
+    # if you don't want to run trivy as root, you may use the following script:
+    # - |
+    #   docker save  $SEC_IMAGE_TO_SCAN_NAME:$SEC_IMAGE_TO_SCAN_TAG -o myimage.tar
+    #   trivy image --input myimage.tar
+    # Otherwise you can pull&scan the image, but with root user
+    - trivy image --output $REPORT_FILE_NAME --security-checks vuln --format json --severity $SEC_TRIVY_MINIMUM_SEVERITY $SEC_IMAGE_TO_SCAN_NAME:$SEC_IMAGE_TO_SCAN_TAG || true
+  extends: 
+    - .allow_failure
+    - .tags
+    - .needs_init
+    - .rules_image_scan
+    - .upload-report
+
+image-scan:grype:
+  stage: image-scan
+  variables:
+    SCAN_TYPE: 'anchore_grype'
+    REPORT_FILE_NAME: 'grype.json'
+    DD_GROUP_BY: 'component_name'
+    GRYPE_REGISTRY_AUTH_AUTHORITY: "$SEC_IMAGE_REGISTRY_URL"
+    GRYPE_REGISTRY_AUTH_USERNAME: "$SEC_IMAGE_REGISTRY_USER"
+    GRYPE_REGISTRY_AUTH_PASSWORD: "$SEC_IMAGE_REGISTRY_PASS" # can be token sometimes
+    GRYPE_REGISTRY_AUTH_TOKEN: "$SEC_IMAGE_REGISTRY_PASS" # can be token sometimes
+    SEC_IMAGE_TO_SCAN_TAG: "$CI_COMMIT_REF_NAME"
+    SEC_IMAGE_TO_SCAN_NAME: "${CI_REGISTRY_IMAGE}"
+  image: "$CI_REGISTRY/$SEC_PATH_TO_IMAGES/grype:$SEC_GRYPE_VER"
+  script:
+    - echo "Scanning image - $SEC_IMAGE_TO_SCAN_NAME:$SEC_IMAGE_TO_SCAN_TAG with $SEC_IMAGE_TO_SCAN_NAME"
+    - grype $SEC_IMAGE_TO_SCAN_NAME:$SEC_IMAGE_TO_SCAN_TAG -o json > $REPORT_FILE_NAME || true
+  extends: 
+    - .allow_failure
+    - .tags
+    - .needs_init
+    - .rules_image_scan
+    - .upload-report

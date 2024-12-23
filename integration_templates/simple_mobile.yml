@@ -1,0 +1,32 @@
+stages: 
+  # after build stage
+  - security
+
+security:
+  stage: security
+  allow_failure: true
+  trigger:
+    include:
+    # Path to the shared repo
+      - project: 'whitespots-public/pipelines'
+        # a proper branch name
+        ref: 'main'
+        file: 'pipelines.yml'
+  variables:
+
+    # Secrets settings
+    SEC_SECRETS_SCAN_ENABLE: "true"
+
+    # SAST settings
+    SEC_SAST_ENABLE: "true"
+    SEC_GREP: "true"
+    SEC_SEMGREP_CONFIG: "p/ci"
+
+    # Mobile settings
+    SEC_MOBILE_ENABLE: "true"
+    SEC_MOBILE_APK_PATH: "./apk/diva-beta.apk"
+    SEC_MOBILE_SCAN_TYPE: "apk|ios"
+    SEC_CHECKKARLMARX_DOMAIN: 'mycompany.com'
+    SEC_CHECKKARLMARX_QA_TAGS: 'qa test dev stage'
+    SEC_CHECKKARLMARX_PACKAGES: 'com.mycompany com.example'
+

@@ -1,0 +1,39 @@
+stages: 
+  # after build stage
+  - security
+
+security:
+  stage: security
+  allow_failure: true
+  trigger:
+    include:
+    # Path to the shared repo
+      - project: 'whitespots-public/pipelines'
+        # a proper branch name
+        ref: 'main'
+        file: 'pipelines.yml'
+  variables:
+
+    # Secrets settings
+    SEC_SECRETS_SCAN_ENABLE: "true"
+
+    # SAST settings
+    SEC_SAST_ENABLE: "true"
+    SEC_GREP: "true"
+    SEC_SEMGREP_CONFIG: "p/ci"
+    SEC_PYTHON: "true"
+    
+    # Dependency check settings
+    SEC_IMAGE_SCAN_ENABLE: "true"
+    SEC_IMAGE_TO_SCAN_NAME: ${CI_REGISTRY_IMAGE}
+    SEC_IMAGE_TO_SCAN_TAG: ${CI_COMMIT_REF_NAME}
+    SEC_IMAGE_REGISTRY_URL: ${CI_REGISTRY}
+    SEC_IMAGE_REGISTRY_USER: ${CI_REGISTRY_USER}
+    SEC_IMAGE_REGISTRY_PASS: ${CI_REGISTRY_PASSWORD}
+    SEC_IMAGE_REGISTRY_TOKEN: ${CI_BUILD_TOKEN}
+    IMAGE_TO_SCAN: "$CI_REGISTRY/$CI_PROJECT_PATH:$CI_COMMIT_REF_NAME"
+
+    # DAST settings
+    SEC_DAST_ENABLE: "true"
+    SEC_DAST_URL_TO_SCAN: "https://example.com"
+

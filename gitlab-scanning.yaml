@@ -1,0 +1,27 @@
+stages:
+  - init
+  - gitlab-scan
+
+.tags:
+  tags:
+    - gitlab-org
+
+.needs_init:
+  needs: 
+    - job: init
+      artifacts: true
+
+include:
+    # Path to the shared repo
+  # - template: Security/Dependency-Scanning.gitlab-ci.yml
+  # - template: Security/Secret-Detection.gitlab-ci.yml
+  # - template: Security/SAST.gitlab-ci.yml
+
+  - local: 'common/variables.yml'
+    ref: 'main'
+
+  - local: 'common/gitlab-scan.yml'
+    ref: 'add_gitlab_scanners'
+
+  - local: 'common/templates/.after-script-upload-report.yml'
+  
